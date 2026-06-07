@@ -778,7 +778,7 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
             </div>
             <div>
               <h1 className="text-lg sm:text-xl md:text-2xl font-black tracking-wide font-sans">
-                TRẮC NGHIỆM NHANH TOÁN 8
+                TRẮC NGHIỆM NHANH TOÁN 8 - GV. HOÀNG QUANG
               </h1>
               <p className="text-[10px] sm:text-xs text-blue-200 font-medium">Học Tập SGK Kết Nối Tri Thức Với Cuộc Sống</p>
             </div>
@@ -1134,7 +1134,7 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
       <footer className="bg-slate-100 border-t border-slate-200 py-6 mt-12 bg-white">
         <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 space-y-1.5">
           <p className="font-bold">
-            &copy; {new Date().getFullYear()} TRẮC NGHIỆM NHANH TOÁN 8. Được phát triển bởi các chuyên gia toán THCS Kết nối Tri Thức & Canvas AI.
+            &copy; {new Date().getFullYear()} TRẮC NGHIỆM NHANH TOÁN 8 - GV. HOÀNG QUANG. Được phát triển bởi các chuyên gia toán THCS Kết nối Tri Thức & Canvas AI.
           </p>
           <p className="text-slate-400">Trình hỗ trợ hiển thị LaTeX KaTeX cực kỳ sắc nét trên nhiều thiết bị di động.</p>
         </div>
