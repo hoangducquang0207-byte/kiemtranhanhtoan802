@@ -1127,6 +1127,9 @@ export default function App() {
               onSimulateAIGenerate={handleSimulateAIGenerate}
               onStartCustomQuiz={handleStartCustomQuiz}
               onSaveQuizPreset={handleSaveQuizPreset}
+              onImportQuestions={(newQs) => {
+                setQuestions((prev) => [...newQs, ...prev]);
+              }}
             />
           )}
 
