@@ -41,6 +41,7 @@ import BaoCao from './components/BaoCao';
 import LamBai from './components/LamBai';
 import ChamDiem from './components/ChamDiem';
 import MathText from './components/MathText';
+import { playClickSound, playCorrectChime, playIncorrectChime, playCelebrationFanfare, playModalPopSound } from './utils/audio';
 
 export default function App() {
   // Global States
@@ -111,6 +112,18 @@ export default function App() {
     open: false,
     title: '',
     message: '',
+  });
+
+  const [confirmModal, setConfirmModal] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
   });
 
   const [questionModal, setQuestionModal] = useState<{
@@ -244,6 +257,7 @@ export default function App() {
 
   // Setup lesson learned checkboxes manually
   const toggleChapterCheckboxValue = (chapterKey: string, val: boolean) => {
+    playClickSound();
     const list = syllabusData[chapterKey]?.lessons || [];
     setLearnedLessons((prev) => {
       const copy = { ...prev };
@@ -267,10 +281,67 @@ export default function App() {
     throwAlert(
       '👁️ Cấu Trúc Khung Đề Thi',
       `Đề trắc nghiệm tự ôn tập gồm: <strong>${count} câu hỏi chất lượng cao</strong>.<br />
-Chương học: <strong>${selectedTitle}</strong>.<br />
-Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
-<i>Phân phối độ khó tối ưu: 40% Nhận biết, 40% Thông hiểu, 20% Vận dụng phù hợp với tiến trình lớp học của bạn.</i>`
+    Chương học: <strong>${selectedTitle}</strong>.<br />
+    Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
+    <i>Phân phối độ khó tối ưu: 40% Nhận biết, 40% Thông hiểu, 20% Vận dụng phù hợp với tiến trình lớp học của bạn.</i>`
     );
+  };
+
+  // Launch quick exercise with specific selected questions from the Bank
+  const handleStartCustomQuiz = (customQuestions: Question[]) => {
+    if (customQuestions.length === 0) {
+      throwAlert('⚠️ Lỗi Kết Nối', 'Vui lòng chọn ít nhất 1 câu hỏi để bắt đầu luyện tập tức thì!');
+      return;
+    }
+    setActiveQuiz({
+      quizId: 'Q-CUSTOM-' + Math.floor(Math.random() * 89999 + 10000),
+      title: `Luyện tập ôn thi: Tùy chọn từ Ngân hàng đề (${customQuestions.length} câu)`,
+      questions: customQuestions,
+      userAnswers: {},
+      timerSeconds: Math.max(5, Math.round(customQuestions.length * 1.5)) * 60,
+      currentQuestionIndex: 0,
+      mode: 'tự luyện nhanh',
+    });
+    setCurrentTab('lam-bai');
+    showToast(`Đã nạp thành công ${customQuestions.length} câu vào bảng làm bài!`);
+  };
+
+  // Package a list of chosen questions as a Preset Quiz in "Danh sách đề"
+  const handleSaveQuizPreset = (customQuestions: Question[]) => {
+    if (customQuestions.length === 0) {
+      throwAlert('⚠️ Không Có Câu Hỏi', 'Vui lòng chọn hoặc lọc các câu hỏi để đóng gói đề thi mới!');
+      return;
+    }
+    const defaultTitle = `Đề tự đóng gói: Hằng đẳng thức & Hình học (${customQuestions.length} câu)`;
+    let title: string | null = null;
+    try {
+      title = window.prompt('Nhập tiêu đề hoặc tên gói đề kiểm tra mới của bạn:', defaultTitle);
+    } catch (e) {
+      console.warn('window.prompt was blocked in iframe context', e);
+      title = defaultTitle;
+    }
+    if (title === null) return; // user clicked cancel
+    const finalTitle = title.trim() || defaultTitle;
+
+    const newQuiz: PresetQuiz = {
+      id: 'Q-SAVED-' + Math.floor(Math.random() * 89999 + 10000),
+      title: finalTitle,
+      class: userClass,
+      syllabus: customQuestions[0]?.syllabus || 'chuong-1',
+      topic: customQuestions[0]?.topic || 'Tổng hợp',
+      mode: 'tự luyện',
+      questionCount: customQuestions.length,
+      timer: Math.max(5, Math.round(customQuestions.length * 1.5)),
+      type: 'mixed',
+      level: 'mixed',
+      questions: customQuestions.map((q) => q.id),
+      date: new Date().toLocaleDateString('vi-VN'),
+      status: 'Đã lưu',
+    };
+
+    setQuizzes((prev) => [newQuiz, ...prev]);
+    showToast(`Đóng gói & Tạo đề thành công: "${finalTitle}" đã sẵn sàng ở Kho đề!`);
+    setCurrentTab('kho-de'); // Navigate to Kho de
   };
 
   // RENDER DYNAMIC QUIZZES ON THE FLY
@@ -284,31 +355,58 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
     level: string;
     source: string;
   }) => {
-    // strict learned lessons checking
-    let eligibleQuestions = questions.filter((q) => q.syllabus === config.syllabusKey);
-    eligibleQuestions = eligibleQuestions.filter((q) => !!learnedLessons[q.topic]);
-
-    if (config.topic !== 'all') {
-      eligibleQuestions = eligibleQuestions.filter((q) => q.topic === config.topic);
+    // Determine the active lessons for this generation
+    let targetLessons = [config.topic];
+    if (config.topic === 'all') {
+      const chapterLessons = syllabusData[config.syllabusKey]?.lessons || [];
+      const ticked = chapterLessons.filter((l) => !!learnedLessons[l]);
+      if (ticked.length === 0 && chapterLessons.length > 0) {
+        // Auto tick the first lesson to avoid empty state
+        const firstLesson = chapterLessons[0];
+        setLearnedLessons((prev) => ({ ...prev, [firstLesson]: true }));
+        targetLessons = [firstLesson];
+      } else {
+        targetLessons = ticked;
+      }
+    } else {
+      // Auto tick the specific topic being tested if it wasn't already checked
+      if (!learnedLessons[config.topic]) {
+        setLearnedLessons((prev) => ({ ...prev, [config.topic]: true }));
+      }
     }
 
-    // Top up if insufficient questions match
-    if (eligibleQuestions.length < config.count) {
-      const topupCandidates = questions.filter(
-        (q) => q.syllabus === config.syllabusKey && !!learnedLessons[q.topic] && !eligibleQuestions.some(eq => eq.id === q.id)
-      );
-      eligibleQuestions = eligibleQuestions.concat(topupCandidates);
+    // Now gather currently saved questions for these target lessons in this chapter
+    let eligibleQuestions = questions.filter(
+      (q) => q.syllabus === config.syllabusKey && targetLessons.includes(q.topic)
+    );
+
+    // Dynamic generation if there are not enough saved questions
+    const neededCount = config.count - eligibleQuestions.length;
+    if (neededCount > 0) {
+      const newGeneratedQuestions: Question[] = [];
+      for (let i = 0; i < neededCount; i++) {
+        const topicToGen = targetLessons[i % targetLessons.length] || (syllabusData[config.syllabusKey]?.lessons[0] || 'Tổng hợp');
+        const nextIdCounter = questions.length + i + 1;
+        const newQ = generateRandomMathQuestion(config.syllabusKey, nextIdCounter, topicToGen);
+        newGeneratedQuestions.push(newQ);
+      }
+      
+      // Update our questions bank state so they persist and are visible in KhoCauHoi
+      setQuestions((prev) => [...newGeneratedQuestions, ...prev]);
+      eligibleQuestions = eligibleQuestions.concat(newGeneratedQuestions);
+      showToast(`🤖 AI đã tự động thiết kế thêm ${neededCount} câu hỏi chất lượng cao cho chủ đề!`);
     }
 
+    // Double check that we have questions in hand
     if (eligibleQuestions.length === 0) {
       throwAlert(
         '⚠️ Không Tìm Thấy Câu Hỏi',
-        'Không tìm thấy câu hỏi đạt tiêu chuẩn phù hợp với tiến độ tích chọn học tập. Vui lòng ấn vào biểu tượng ⚙️ trong mục <b>"Kiểm soát Tiến độ học"</b> để bật nhiều chương học mẫu.'
+        'Không tìm thấy câu hỏi phù hợp. Vui lòng thiết lập Tiến độ chi tiết.'
       );
       return;
     }
 
-    // Shuffle and pick
+    // Shuffle and pick config.count
     const sequence = [...eligibleQuestions].sort(() => Math.random() - 0.5).slice(0, config.count);
 
     setActiveQuiz({
@@ -327,6 +425,7 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
   // Student answer controls
   const handleSelectAnswer = (option: string) => {
     if (!activeQuiz) return;
+    playClickSound();
     setActiveQuiz((prev) => {
       if (!prev) return null;
       const copy = { ...prev.userAnswers };
@@ -337,6 +436,7 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
 
   const handleSelectTFAnswer = (subIdx: number, val: 'Đúng' | 'Sai') => {
     if (!activeQuiz) return;
+    playClickSound();
     setActiveQuiz((prev) => {
       if (!prev) return null;
       const copy = { ...prev.userAnswers };
@@ -371,65 +471,78 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
 
     const query =
       answered < total
-        ? `Bạn mới hoàn thiện ${answered} trên tổng số ${total} câu hỏi. Bạn chắc chắn vẫn muốn nộp bài thi chứ?`
-        : `Bạn đã hoàn tất toàn bộ ${total} câu hỏi toán học. Bạn có muốn nộp bài ngay để AI chấm phân tích kết quả?`;
+        ? `Bạn mới hoàn thiện <strong>${answered}</strong> trên tổng số <strong>${total}</strong> câu hỏi.<br/><br/>Bạn có chắc chắn vẫn muốn nộp bài thi chứ?`
+        : `Bạn đã hoàn tất toàn bộ <strong>${total}</strong> câu hỏi toán học.<br/><br/>Bạn có muốn nộp bài ngay để hệ thống chấm và phân tích kết quả?`;
 
-    if (window.confirm(query)) {
-      // Calculate score and synchronize personal profile stats
-      let correct = 0;
-      activeQuiz.questions.forEach((q, idx) => {
-        const studentAns = activeQuiz.userAnswers[idx];
-        if (q.type === 'MCQ') {
-          if (studentAns === q.correct) correct++;
-        } else if (q.type === 'SHORT') {
-          const formStud = (studentAns || '').toString().trim().replace(/\s+/g, '').toLowerCase();
-          const formCorr = (q.correct as string).trim().replace(/\s+/g, '').toLowerCase();
-          if (formStud === formCorr) correct++;
-        } else if (q.type === 'TF') {
-          const correctArr = q.correct as string[];
-          const studentArr = (studentAns as string[]) || [];
-          const isAllCorrect = correctArr.every((v, si) => studentArr[si] === v);
-          if (isAllCorrect) correct += 0.5;
-        }
-      });
-
-      let calculatedScore = (correct / total) * 10;
-      calculatedScore = Math.round(calculatedScore * 10) / 10;
-
-      // Update statistics
-      setStats((prev) => {
-        const t = prev.totalTests + 1;
-        const highest = calculatedScore > prev.highestScore ? calculatedScore : prev.highestScore;
-        const avg = Math.round(((prev.avgScore * prev.totalTests + calculatedScore) / t) * 10) / 10;
-        return {
-          totalTests: t,
-          highestScore: highest,
-          avgScore: avg,
-          weakTopic: calculatedScore < 6.5 ? activeQuiz.questions[0]?.topic || prev.weakTopic : prev.weakTopic,
-          correctAnswers: prev.correctAnswers + Math.floor(correct),
-          incorrectAnswers: prev.incorrectAnswers + (total - Math.floor(correct)),
-        };
-      });
-
-      // Synchronize back to class reports
-      setClassReports((prev) => {
-        const report = { ...prev[userClass] };
-        if (report) {
-          report.students += 1;
-          report.avgScore = Math.round(((report.avgScore * (report.students - 1) + calculatedScore) / report.students) * 10) / 10;
-          if (calculatedScore < 5.5) {
-            report.struggling = [
-              ...report.struggling,
-              { name: username, avg: calculatedScore, weak: activeQuiz.questions[0]?.topic || 'Biến đổi biểu thức', tests: 1 },
-            ];
+    setConfirmModal({
+      open: true,
+      title: 'Nộp Bài Thi Chuyên Đề',
+      message: query,
+      onConfirm: () => {
+        // Calculate score and synchronize personal profile stats
+        let correct = 0;
+        activeQuiz.questions.forEach((q, idx) => {
+          const studentAns = activeQuiz.userAnswers[idx];
+          if (q.type === 'MCQ') {
+            if (studentAns === q.correct) correct++;
+          } else if (q.type === 'SHORT') {
+            const formStud = (studentAns || '').toString().trim().replace(/\s+/g, '').toLowerCase();
+            const formCorr = (q.correct as string).trim().replace(/\s+/g, '').toLowerCase();
+            if (formStud === formCorr) correct++;
+          } else if (q.type === 'TF') {
+            const correctArr = q.correct as string[];
+            const studentArr = (studentAns as string[]) || [];
+            const isAllCorrect = correctArr.every((v, si) => studentArr[si] === v);
+            if (isAllCorrect) correct += 0.5;
           }
-        }
-        return { ...prev, [userClass]: report };
-      });
+        });
 
-      setCurrentTab('cham-diem');
-      showToast('Nộp bài và chấm điểm AI tự học thành công!');
-    }
+        let calculatedScore = (correct / total) * 10;
+        calculatedScore = Math.round(calculatedScore * 10) / 10;
+
+        // Update statistics
+        setStats((prev) => {
+          const t = prev.totalTests + 1;
+          const highest = calculatedScore > prev.highestScore ? calculatedScore : prev.highestScore;
+          const avg = Math.round(((prev.avgScore * prev.totalTests + calculatedScore) / t) * 10) / 10;
+          return {
+            totalTests: t,
+            highestScore: highest,
+            avgScore: avg,
+            weakTopic: calculatedScore < 6.5 ? activeQuiz.questions[0]?.topic || prev.weakTopic : prev.weakTopic,
+            correctAnswers: prev.correctAnswers + Math.floor(correct),
+            incorrectAnswers: prev.incorrectAnswers + (total - Math.floor(correct)),
+          };
+        });
+
+        // Synchronize back to class reports
+        setClassReports((prev) => {
+          const report = { ...prev[userClass] };
+          if (report) {
+            report.students += 1;
+            report.avgScore = Math.round(((report.avgScore * (report.students - 1) + calculatedScore) / report.students) * 10) / 10;
+            if (calculatedScore < 5.5) {
+              report.struggling = [
+                ...report.struggling,
+                { name: username, avg: calculatedScore, weak: activeQuiz.questions[0]?.topic || 'Biến đổi biểu thức', tests: 1 },
+              ];
+            }
+          }
+          return { ...prev, [userClass]: report };
+        });
+
+        setCurrentTab('cham-diem');
+        // Audio reinforcement logic based on the score achieved
+        if (calculatedScore >= 8.0) {
+          playCelebrationFanfare();
+        } else if (calculatedScore >= 5.5) {
+          playCorrectChime();
+        } else {
+          playIncorrectChime();
+        }
+        showToast('Nộp bài và chấm điểm AI tự học thành công!');
+      }
+    });
   };
 
   // Launch pre-preset quiz quickly
@@ -593,10 +706,15 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
   };
 
   const handleDeleteQuestion = (id: string) => {
-    if (window.confirm(`Bạn có chắc chắn muốn loại bỏ vĩnh viễn câu hỏi có mã: ${id}?`)) {
-      setQuestions((prev) => prev.filter((q) => q.id !== id));
-      showToast(`Đã loại bỏ câu hỏi: ${id}`);
-    }
+    setConfirmModal({
+      open: true,
+      title: 'Xóa câu hỏi',
+      message: `Bạn có chắc chắn muốn bỏ vĩnh viễn câu hỏi có mã: <strong>${id}</strong>? Thao tác này không thể hoàn tác.`,
+      onConfirm: () => {
+        setQuestions((prev) => prev.filter((q) => q.id !== id));
+        showToast(`Đã loại bỏ câu hỏi: ${id}`);
+      }
+    });
   };
 
   // AI simulates similar mathematical equation questions generator
@@ -778,7 +896,7 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
             </div>
             <div>
               <h1 className="text-lg sm:text-xl md:text-2xl font-black tracking-wide font-sans">
-                TRẮC NGHIỆM NHANH TOÁN 8 - GV. HOÀNG QUANG
+                TRẮC NGHIỆM NHANH TOÁN 8 - BY HOÀNG QUANG
               </h1>
               <p className="text-[10px] sm:text-xs text-blue-200 font-medium">Học Tập SGK Kết Nối Tri Thức Với Cuộc Sống</p>
             </div>
@@ -814,6 +932,7 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
                   <button
                     key={item.id}
                     onClick={() => {
+                      playClickSound();
                       if (item.id === 'lam-bai' && !activeQuiz) {
                         throwAlert(
                           '⚠️ Không có đề thi hoạt động',
@@ -880,7 +999,10 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
             </div>
 
             <button
-              onClick={() => setProgressModalOpen(true)}
+              onClick={() => {
+                playModalPopSound();
+                setProgressModalOpen(true);
+              }}
               className="w-full py-2 bg-indigo-600 hover:bg-brand-600 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
             >
               ⚙️ Thiết lập Tiến độ chi tiết
@@ -908,7 +1030,10 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
             <TaoDe
               syllabusData={syllabusData}
               learnedLessons={learnedLessons}
-              openProgressModal={() => setProgressModalOpen(true)}
+              openProgressModal={() => {
+                playModalPopSound();
+                setProgressModalOpen(true);
+              }}
               onPreview={handlePreviewQuiz}
               onCreateQuiz={handleCreateQuizNow}
             />
@@ -922,6 +1047,8 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
               onEditClick={handleOpenEditQuestion}
               onDeleteClick={handleDeleteQuestion}
               onSimulateAIGenerate={handleSimulateAIGenerate}
+              onStartCustomQuiz={handleStartCustomQuiz}
+              onSaveQuizPreset={handleSaveQuizPreset}
             />
           )}
 
@@ -1134,7 +1261,7 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
       <footer className="bg-slate-100 border-t border-slate-200 py-6 mt-12 bg-white">
         <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 space-y-1.5">
           <p className="font-bold">
-            &copy; {new Date().getFullYear()} TRẮC NGHIỆM NHANH TOÁN 8 - GV. HOÀNG QUANG. Được phát triển bởi các chuyên gia toán THCS Kết nối Tri Thức & Canvas AI.
+            &copy; {new Date().getFullYear()} TRẮC NGHIỆM NHANH TOÁN 8 - BY HOÀNG QUANG. Được phát triển bởi các chuyên gia toán THCS Kết nối Tri Thức & Canvas AI.
           </p>
           <p className="text-slate-400">Trình hỗ trợ hiển thị LaTeX KaTeX cực kỳ sắc nét trên nhiều thiết bị di động.</p>
         </div>
@@ -1248,6 +1375,7 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
                                 type="checkbox"
                                 checked={!!learnedLessons[lesson]}
                                 onChange={(e) => {
+                                  playClickSound();
                                   const val = e.target.checked;
                                   setLearnedLessons((prev) => ({ ...prev, [lesson]: val }));
                                 }}
@@ -1291,6 +1419,36 @@ Chủ đề lọc: <strong>${topicDisplay}</strong>.<br /><br />
                 className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-5 py-2 rounded-xl transition cursor-pointer"
               >
                 Đồng ý
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Confirmation Dialog */}
+      {confirmModal.open && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 transition-opacity animate-fade">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="p-2 bg-indigo-50 text-indigo-700 rounded-full h-9 w-9 flex items-center justify-center font-black">?</span>
+              <h3 className="text-base font-black text-slate-800">{confirmModal.title}</h3>
+            </div>
+            <p className="text-slate-600 text-xs sm:text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: confirmModal.message }}></p>
+            <div className="flex justify-end gap-2.5 pt-2 text-xs font-bold">
+              <button
+                onClick={() => setConfirmModal({ open: false, title: '', message: '', onConfirm: () => {} })}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-2.5 rounded-xl transition cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={() => {
+                  confirmModal.onConfirm();
+                  setConfirmModal({ open: false, title: '', message: '', onConfirm: () => {} });
+                }}
+                className="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2.5 rounded-xl transition cursor-pointer shadow-xs"
+              >
+                Xác nhận
               </button>
             </div>
           </div>

@@ -349,11 +349,130 @@ export const navMenu = [
 ];
 
 // High fidelity mock AI question generator template
-export function generateRandomMathQuestion(syllabusId: string, idCounter: number): Question {
+export function generateRandomMathQuestion(syllabusId: string, idCounter: number, targetLesson?: string): Question {
   const chapterLessons = syllabusData[syllabusId]?.lessons || ['Tổng hợp kiến thức'];
-  const randomLesson = chapterLessons[Math.floor(Math.random() * chapterLessons.length)];
+  const randomLesson = targetLesson && chapterLessons.includes(targetLesson)
+    ? targetLesson
+    : chapterLessons[Math.floor(Math.random() * chapterLessons.length)];
 
   // We can customize equations based on chapters
+  if (syllabusId === 'chuong-3') {
+    if (randomLesson === 'Bài 10: Tứ giác') {
+      const optionIndex = Math.floor(Math.random() * 2);
+      if (optionIndex === 0) {
+        return {
+          id: `CH_AI_${idCounter}`,
+          syllabus: syllabusId,
+          topic: randomLesson,
+          level: 'Nhận biết',
+          type: 'MCQ',
+          content: 'Tổng số đo các góc của một tứ giác lồi luôn luôn bằng:',
+          options: ['$360^\\circ$', '$180^\\circ$', '$540^\\circ$', '$90^\\circ$'],
+          correct: 'A',
+          solution: 'Theo định lí về tổng các góc của một tứ giác: Tổng các góc của một tứ giác bằng $360^\\circ$.',
+          source: 'AI tạo',
+          status: 'Đã duyệt',
+          uses: 0,
+          correctRate: 100
+        };
+      } else {
+        const aVal = 60 + Math.floor(Math.random() * 3) * 10; // 60, 70, 80
+        const bVal = 100 + Math.floor(Math.random() * 3) * 10; // 100, 110, 120
+        const cVal = 80 + Math.floor(Math.random() * 2) * 5; // 80, 85
+        const dVal = 360 - (aVal + bVal + cVal);
+        return {
+          id: `CH_AI_${idCounter}`,
+          syllabus: syllabusId,
+          topic: randomLesson,
+          level: 'Thông hiểu',
+          type: 'MCQ',
+          content: `Cho tứ giác $ABCD$ có các góc $\\hat{A} = ${aVal}^\\circ, \\hat{B} = ${bVal}^\\circ, \\hat{C} = ${cVal}^\\circ$. Số đo của góc $\\hat{D}$ là:`,
+          options: [`$${dVal}^\\circ$`, `$${dVal + 10}^\\circ$`, `$${dVal - 10}^\\circ$`, `$90^\\circ$`],
+          correct: 'A',
+          solution: `Trong tứ giác $ABCD$, ta có: $\\hat{A} + \\hat{B} + \\hat{C} + \\hat{D} = 360^\\circ$.<br>Suy ra: $\\hat{D} = 360^\\circ - (\\hat{A} + \\hat{B} + \\hat{C}) = 360^\\circ - (${aVal}^\\circ + ${bVal}^\\circ + ${cVal}^\\circ) = ${dVal}^\\circ$.`,
+          source: 'AI tạo',
+          status: 'Đã duyệt',
+          uses: 0,
+          correctRate: 100
+        };
+      }
+    } else if (randomLesson === 'Bài 11: Hình thang cân') {
+      const cAngle = 60 + Math.floor(Math.random() * 4) * 5; // 60, 65, 70, 75
+      const aAngle = 180 - cAngle;
+      return {
+        id: `CH_AI_${idCounter}`,
+        syllabus: syllabusId,
+        topic: randomLesson,
+        level: 'Thông hiểu',
+        type: 'MCQ',
+        content: `Cho hình thang cân $ABCD$ ($AB \\parallel CD$) có số đo góc $\\hat{C} = ${cAngle}^\\circ$. Tính số đo của góc $\\hat{A}$.`,
+        options: [`$${aAngle}^\\circ$`, `$${cAngle}^\\circ$`, `$90^\\circ$`, `$120^\\circ$`],
+        correct: 'A',
+        solution: `Do $ABCD$ là hình thang ($AB \\parallel CD$) nên góc $\\hat{A}$ và góc $\\hat{D}$ là hai góc trong cùng phía, suy ra $\\hat{A} + \\hat{D} = 180^\\circ$.<br>Mặt khác, hình thang $ABCD$ cân nên $\\hat{C} = \\hat{D} = ${cAngle}^\\circ$.<br>Do đó: $\\hat{A} = 180^\\circ - ${cAngle}^\\circ = ${aAngle}^\\circ$.`,
+        source: 'AI tạo',
+        status: 'Đã duyệt',
+        uses: 0,
+        correctRate: 100
+      };
+    } else if (randomLesson === 'Bài 12: Hình bình hành') {
+      return {
+        id: `CH_AI_${idCounter}`,
+        syllabus: syllabusId,
+        topic: randomLesson,
+        level: 'Thông hiểu',
+        type: 'MCQ',
+        content: 'Khẳng định nào sau đây là SAI khi nói về tính chất của hình bình hành?',
+        options: [
+          'Hình bình hành có hai đường chéo bằng nhau.',
+          'Các cạnh đối của hình bình hành song song và bằng nhau.',
+          'Các góc đối của hình bình hành bằng nhau.',
+          'Hai đường chéo của hình bình hành cắt nhau tại trung điểm của mỗi đường.'
+        ],
+        correct: 'A',
+        solution: 'Hình bình hành chỉ có hai đường chéo cắt nhau tại trung điểm của mỗi đường, chứ không nhất thiết bằng nhau (chỉ hình chữ nhật và hình vuông mới có hai đường chéo bằng nhau).',
+        source: 'AI tạo',
+        status: 'Đã duyệt',
+        uses: 0,
+        correctRate: 100
+      };
+    } else if (randomLesson === 'Bài 13: Hình chữ nhật') {
+      const a = 6;
+      const b = 8;
+      const diag = 10;
+      return {
+        id: `CH_AI_${idCounter}`,
+        syllabus: syllabusId,
+        topic: randomLesson,
+        level: 'Thông hiểu',
+        type: 'MCQ',
+        content: `Một hình chữ nhật $ABCD$ có chiều dài các cạnh kích thước lần lượt là $AB = ${a}\\text{ cm}$ và $BC = ${b}\\text{ cm}$. Độ dài đường chéo $AC$ của hình chữ nhật này là:`,
+        options: [`$${diag}\\text{ cm}$`, `$14\\text{ cm}$`, `$12\\text{ cm}$`, `$7\\text{ cm}$`],
+        correct: 'A',
+        solution: `Áp dụng định lý Pythagore trong tam giác vuông $ABC$ (vuông tại $B$):<br>$AC^2 = AB^2 + BC^2 = ${a}^2 + ${b}^2 = 36 + 64 = 100$.<br>Do đó $AC = \\sqrt{100} = ${diag}\\text{ cm}$.`,
+        source: 'AI tạo',
+        status: 'Đã duyệt',
+        uses: 0,
+        correctRate: 100
+      };
+    } else { // Bài 14: Hình thoi và hình vuông
+      return {
+        id: `CH_AI_${idCounter}`,
+        syllabus: syllabusId,
+        topic: randomLesson,
+        level: 'Nhận biết',
+        type: 'MCQ',
+        content: 'Tứ giác nào có bốn cạnh bằng nhau và bốn góc vuông?',
+        options: ['Hình vuông', 'Hình thoi', 'Hình chữ nhật', 'Hình bình hành'],
+        correct: 'A',
+        solution: 'Theo định nghĩa, hình vuông là tứ giác có bốn góc vuông và bốn cạnh bằng nhau.',
+        source: 'AI tạo',
+        status: 'Đã duyệt',
+        uses: 0,
+        correctRate: 100
+      };
+    }
+  }
+
   if (syllabusId === 'chuong-1') {
     const a = Math.floor(Math.random() * 8) + 2;
     const b = Math.floor(Math.random() * 5) + 1;
@@ -384,7 +503,6 @@ export function generateRandomMathQuestion(syllabusId: string, idCounter: number
     const num = Math.floor(Math.random() * 10) + 101; // e.g. 105
     const squareOffset = num - 100; // e.g. 5
     const square = squareOffset * squareOffset; // 25
-    const baseValue = 100;
     
     return {
       id: `CH_AI_${idCounter}`,
@@ -414,7 +532,7 @@ export function generateRandomMathQuestion(syllabusId: string, idCounter: number
     return {
       id: `CH_AI_${idCounter}`,
       syllabus: syllabusId,
-      topic: 'Bài 25: Phương trình bậc nhất một ẩn',
+      topic: randomLesson === 'Tổng hợp kiến thức' ? 'Bài 25: Phương trình bậc nhất một ẩn' : randomLesson,
       level: 'Nhận biết',
       type: 'SHORT',
       content: `Tìm nghiệm $x$ của phương trình bậc nhất một ẩn sau: $${coeff}x - ${constant} = 0$`,
