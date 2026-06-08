@@ -355,7 +355,7 @@ export default function App() {
     level: string;
     source: string;
   }) => {
-    // Determine the active lessons for this generation
+    // Determine the active lessons for this generation (Kiểm soát tiến độ hoạt động)
     let targetLessons = [config.topic];
     if (config.topic === 'all') {
       const chapterLessons = syllabusData[config.syllabusKey]?.lessons || [];
@@ -375,51 +375,129 @@ export default function App() {
       }
     }
 
-    // Now gather currently saved questions for these target lessons in this chapter
-    let eligibleQuestions = questions.filter(
-      (q) => q.syllabus === config.syllabusKey && targetLessons.includes(q.topic)
-    );
+    let finalQuestions: Question[] = [];
+    let isFromKhoDe = false;
+    let matchedQuizTitle = '';
 
-    // Dynamic generation if there are not enough saved questions
-    const neededCount = config.count - eligibleQuestions.length;
-    if (neededCount > 0) {
-      const newGeneratedQuestions: Question[] = [];
-      for (let i = 0; i < neededCount; i++) {
-        const topicToGen = targetLessons[i % targetLessons.length] || (syllabusData[config.syllabusKey]?.lessons[0] || 'Tổng hợp');
-        const nextIdCounter = questions.length + i + 1;
-        const newQ = generateRandomMathQuestion(config.syllabusKey, nextIdCounter, topicToGen);
-        newGeneratedQuestions.push(newQ);
-      }
+    // Check if the source permits loading from the 'Kho Đề Kiểm Tra'
+    if (config.source === 'both' || config.source === 'store') {
+      // Try to find a matching quiz from quizzes that belongs to the current syllabus
+      const potentialPresetQuizzes = quizzes.filter((qz) => qz.syllabus === config.syllabusKey);
       
-      // Update our questions bank state so they persist and are visible in KhoCauHoi
-      setQuestions((prev) => [...newGeneratedQuestions, ...prev]);
-      eligibleQuestions = eligibleQuestions.concat(newGeneratedQuestions);
-      showToast(`🤖 AI đã tự động thiết kế thêm ${neededCount} câu hỏi chất lượng cao cho chủ đề!`);
+      let bestMatchingQuiz: PresetQuiz | null = null;
+      let bestQuizQuestionsList: Question[] = [];
+
+      for (const qz of potentialPresetQuizzes) {
+        const qzQuestions = qz.questions
+          .map((qid) => questions.find((item) => item.id === qid))
+          .filter((x): x is Question => x !== undefined);
+
+        if (qzQuestions.length === 0) continue;
+
+        // Check if ALL questions of this preset quiz correspond to active learned lessons ("Kiểm soát tiến độ hoạt động")
+        const isProgressCompliant = qzQuestions.every((q) => {
+          return targetLessons.includes(q.topic) && !!learnedLessons[q.topic];
+        });
+
+        if (isProgressCompliant) {
+          // Prefer the quiz with closer question count
+          if (!bestMatchingQuiz || Math.abs(qzQuestions.length - config.count) < Math.abs(bestQuizQuestionsList.length - config.count)) {
+            bestMatchingQuiz = qz;
+            bestQuizQuestionsList = qzQuestions;
+          }
+        }
+      }
+
+      if (bestMatchingQuiz && bestQuizQuestionsList.length > 0) {
+        isFromKhoDe = true;
+        matchedQuizTitle = bestMatchingQuiz.title;
+
+        if (bestQuizQuestionsList.length === config.count) {
+          finalQuestions = [...bestQuizQuestionsList];
+        } else if (bestQuizQuestionsList.length > config.count) {
+          finalQuestions = bestQuizQuestionsList.slice(0, config.count);
+        } else {
+          // Need to top up with AI simulated generation to match requested count
+          finalQuestions = [...bestQuizQuestionsList];
+          const neededCount = config.count - finalQuestions.length;
+          const newGeneratedQuestions: Question[] = [];
+          for (let i = 0; i < neededCount; i++) {
+            const topicToGen = targetLessons[i % targetLessons.length] || (syllabusData[config.syllabusKey]?.lessons[0] || 'Tổng hợp');
+            const nextIdCounter = questions.length + i + 1;
+            const newQ = generateRandomMathQuestion(config.syllabusKey, nextIdCounter, topicToGen);
+            newGeneratedQuestions.push(newQ);
+          }
+          setQuestions((prev) => [...newGeneratedQuestions, ...prev]);
+          finalQuestions = finalQuestions.concat(newGeneratedQuestions);
+          showToast(`🤖 Lấy từ Kho Đề và sinh bổ sung ${neededCount} câu học tập khớp hoàn toàn tiến độ!`);
+        }
+      }
+    }
+
+    // Fallback: Custom dynamic generation via AI if not found in Kho De or skipped
+    if (finalQuestions.length === 0) {
+      // Gather eligible questions from the standard bank first if not purely simulated AI
+      let eligibleQuestions: Question[] = [];
+      if (config.source !== 'ai') {
+        eligibleQuestions = questions.filter(
+          (q) => q.syllabus === config.syllabusKey && targetLessons.includes(q.topic) && !!learnedLessons[q.topic]
+        );
+      }
+
+      // Generate missing questions on the fly, matching the cognitive levels or structure requested
+      const neededCount = config.count - eligibleQuestions.length;
+      if (neededCount > 0) {
+        const newGeneratedQuestions: Question[] = [];
+        for (let i = 0; i < neededCount; i++) {
+          const topicToGen = targetLessons[i % targetLessons.length] || (syllabusData[config.syllabusKey]?.lessons[0] || 'Tổng hợp');
+          const nextIdCounter = questions.length + i + 1;
+          const newQ = generateRandomMathQuestion(config.syllabusKey, nextIdCounter, topicToGen);
+          newGeneratedQuestions.push(newQ);
+        }
+        setQuestions((prev) => [...newGeneratedQuestions, ...prev]);
+        eligibleQuestions = eligibleQuestions.concat(newGeneratedQuestions);
+        showToast(`🤖 Trợ lý AI đã thiết kế riêng ${neededCount} câu hỏi chất lượng cao hợp tiến độ học!`);
+      }
+
+      // Shuffle and pick exactly config.count
+      finalQuestions = [...eligibleQuestions].sort(() => Math.random() - 0.5).slice(0, config.count);
     }
 
     // Double check that we have questions in hand
-    if (eligibleQuestions.length === 0) {
+    if (finalQuestions.length === 0) {
       throwAlert(
         '⚠️ Không Tìm Thấy Câu Hỏi',
-        'Không tìm thấy câu hỏi phù hợp. Vui lòng thiết lập Tiến độ chi tiết.'
+        'Không tìm thấy câu hỏi phù hợp. Vui lòng kiểm tra lại tiến độ hoặc tích chọn thêm bài đã học.'
       );
       return;
     }
 
-    // Shuffle and pick config.count
-    const sequence = [...eligibleQuestions].sort(() => Math.random() - 0.5).slice(0, config.count);
+    const compiledTitle = isFromKhoDe
+      ? `Đề lấy từ Kho Đề: ${matchedQuizTitle}`
+      : `Đề tự luyện AI: ${syllabusData[config.syllabusKey]?.title || 'Toán 8'}`;
 
     setActiveQuiz({
       quizId: 'Q-LIVE-' + Math.floor(Math.random() * 89999 + 10000),
-      title: `Đề tự luyện: ${syllabusData[config.syllabusKey]?.title || 'Toán 8'}`,
-      questions: sequence,
+      title: compiledTitle,
+      questions: finalQuestions,
       userAnswers: {},
       timerSeconds: config.timerMinutes * 60,
       currentQuestionIndex: 0,
-      mode: config.mode,
+      mode: isFromKhoDe ? 'Luyện tập kho đề' : config.mode,
     });
     setCurrentTab('lam-bai');
-    showToast('Tạo đề kiểm tra bám sát tiến độ thành công!');
+    
+    if (isFromKhoDe) {
+      throwAlert(
+        '🎯 Đã Nạp Đề Kiểm Tra Phù Hợp',
+        `Hệ thống phát hiện đề thi bám sát tiến độ học của bạn có sẵn trong <b>Kho Đề Kiểm Tra</b>:<br/><br/>
+        Tên đề: <b>"${matchedQuizTitle}"</b><br/>
+        Tổng số câu nạp: <b>${config.count} câu</b>.<br/><br/>
+        <i>Chúc bạn làm bài thi đạt kết quả xuất sắc!</i>`
+      );
+    } else {
+      showToast('Tạo đề kiểm tra bám sát tiến độ bằng AI thành công!');
+    }
   };
 
   // Student answer controls
