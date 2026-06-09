@@ -126,6 +126,18 @@ export default function App() {
     onConfirm: () => {},
   });
 
+  const [packModal, setPackModal] = useState<{
+    open: boolean;
+    questionsToPack: Question[];
+    defaultTitle: string;
+    titleInput: string;
+  }>({
+    open: false,
+    questionsToPack: [],
+    defaultTitle: '',
+    titleInput: '',
+  });
+
   const [questionModal, setQuestionModal] = useState<{
     open: boolean;
     mode: 'add' | 'edit';
@@ -312,16 +324,19 @@ export default function App() {
       throwAlert('⚠️ Không Có Câu Hỏi', 'Vui lòng chọn hoặc lọc các câu hỏi để đóng gói đề thi mới!');
       return;
     }
-    const defaultTitle = `Đề tự đóng gói: Hằng đẳng thức & Hình học (${customQuestions.length} câu)`;
-    let title: string | null = null;
-    try {
-      title = window.prompt('Nhập tiêu đề hoặc tên gói đề kiểm tra mới của bạn:', defaultTitle);
-    } catch (e) {
-      console.warn('window.prompt was blocked in iframe context', e);
-      title = defaultTitle;
-    }
-    if (title === null) return; // user clicked cancel
-    const finalTitle = title.trim() || defaultTitle;
+    const defaultTitle = `Đề đóng gói: ${syllabusData[customQuestions[0]?.syllabus]?.title || 'Tổng hợp'} (${customQuestions.length} câu)`;
+    setPackModal({
+      open: true,
+      questionsToPack: customQuestions,
+      defaultTitle,
+      titleInput: defaultTitle,
+    });
+  };
+
+  // Confirm and actually perform the packaging list of chosen questions
+  const handleConfirmPackQuiz = (titleValue: string) => {
+    const customQuestions = packModal.questionsToPack;
+    const finalTitle = titleValue.trim() || packModal.defaultTitle;
 
     const newQuiz: PresetQuiz = {
       id: 'Q-SAVED-' + Math.floor(Math.random() * 89999 + 10000),
@@ -342,6 +357,7 @@ export default function App() {
     setQuizzes((prev) => [newQuiz, ...prev]);
     showToast(`Đóng gói & Tạo đề thành công: "${finalTitle}" đã sẵn sàng ở Kho đề!`);
     setCurrentTab('kho-de'); // Navigate to Kho de
+    setPackModal({ open: false, questionsToPack: [], defaultTitle: '', titleInput: '' });
   };
 
   // RENDER DYNAMIC QUIZZES ON THE FLY
@@ -795,6 +811,31 @@ export default function App() {
     });
   };
 
+  const handleClearAllQuestions = () => {
+    setConfirmModal({
+      open: true,
+      title: '🗑️ Xóa toàn bộ câu hỏi',
+      message: 'Bạn có cực kỳ chắc chắn muốn xóa <strong>toàn bộ câu hỏi</strong> trong Ngân hàng? Tất cả câu hỏi thủ công và AI tự động sinh sẽ bị dọn sạch vĩnh viễn. Thao tác này không thể khôi phục.',
+      onConfirm: () => {
+        setQuestions([]);
+        showToast('🧹 Đã dọn sạch toàn bộ kho câu hỏi của Ngân hàng!');
+      }
+    });
+  };
+
+  const handleClearChapterQuestions = (chapterKey: string) => {
+    const chapterName = syllabusData[chapterKey]?.title || chapterKey;
+    setConfirmModal({
+      open: true,
+      title: '🗑️ Xóa câu hỏi của chương',
+      message: `Bạn có chắc chắn muốn xóa TOÀN BỘ câu hỏi thuộc <strong>${chapterName}</strong>? Thao tác này không thể hoàn tác.`,
+      onConfirm: () => {
+        setQuestions((prev) => prev.filter((q) => q.syllabus !== chapterKey));
+        showToast(`🧹 Đã dọn sạch câu hỏi thuộc ${chapterName}!`);
+      }
+    });
+  };
+
   // AI simulates similar mathematical equation questions generator
   const handleSimulateAIGenerate = async (chapterCode: string) => {
     return new Promise<void>((resolve) => {
@@ -1129,7 +1170,10 @@ export default function App() {
               onSaveQuizPreset={handleSaveQuizPreset}
               onImportQuestions={(newQs) => {
                 setQuestions((prev) => [...newQs, ...prev]);
+                showToast(`🎉 Đã nạp thành công ${newQs.length} câu hỏi mới vào Ngân hàng!`);
               }}
+              onClearAllQuestions={handleClearAllQuestions}
+              onClearChapterQuestions={handleClearChapterQuestions}
             />
           )}
 
@@ -1530,6 +1574,62 @@ export default function App() {
                 className="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2.5 rounded-xl transition cursor-pointer shadow-xs"
               >
                 Xác nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Package Name Dialog (Bypass blocked window.prompt) */}
+      {packModal.open && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 transition-opacity duration-150">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-slate-100 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-2.5 pb-2 border-b border-slate-100">
+              <span className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl text-lg">📦</span>
+              <div>
+                <h3 className="font-extrabold text-slate-800 text-base">Đóng gói Đề thi & Tuyển tập mới</h3>
+                <p className="text-xs text-slate-400">Tạo đề thi lưu trữ trực tiếp vào Kho đề kiểm tra của bạn.</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Đặt tên tiêu đề đề thi</label>
+                <input
+                  type="text"
+                  value={packModal.titleInput}
+                  onChange={(e) => setPackModal(prev => ({ ...prev, titleInput: e.target.value }))}
+                  placeholder="Nhập tên đề kiểm tra hoặc đề thi..."
+                  className="w-full text-xs font-semibold p-3 border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 rounded-xl outline-none transition"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl text-xs font-bold text-slate-600">
+                <div className="space-y-1.5">
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wide block">Phân loại mẫu</span>
+                  <span className="text-slate-800 font-extrabold">
+                    {syllabusData[packModal.questionsToPack[0]?.syllabus]?.title || 'Không xác định'}
+                  </span>
+                </div>
+                <div className="space-y-1.5">
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wide block">Số lượng câu hỏi</span>
+                  <span className="text-indigo-605 text-indigo-700 font-extrabold">{packModal.questionsToPack.length} câu hỏi đạt chuẩn</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-2 text-xs font-bold">
+              <button
+                onClick={() => setPackModal({ open: false, questionsToPack: [], defaultTitle: '', titleInput: '' })}
+                className="bg-slate-100 hover:bg-slate-250 text-slate-600 px-5 py-2.5 rounded-xl cursor-pointer transition border border-slate-200"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={() => handleConfirmPackQuiz(packModal.titleInput)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl cursor-pointer transition shadow-md flex items-center gap-1"
+              >
+                Xác nhận & Đóng gói ngay
               </button>
             </div>
           </div>

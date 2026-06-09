@@ -186,6 +186,8 @@ interface KhoCauHoiProps {
   onStartCustomQuiz?: (customQuestions: Question[]) => void;
   onSaveQuizPreset?: (customQuestions: Question[]) => void;
   onImportQuestions?: (newQs: Question[]) => void;
+  onClearAllQuestions?: () => void;
+  onClearChapterQuestions?: (chapterKey: string) => void;
 }
 
 export default function KhoCauHoi({
@@ -198,6 +200,8 @@ export default function KhoCauHoi({
   onStartCustomQuiz,
   onSaveQuizPreset,
   onImportQuestions,
+  onClearAllQuestions,
+  onClearChapterQuestions,
 }: KhoCauHoiProps) {
   const [filterSyllabus, setFilterSyllabus] = useState('all');
   const [filterLevel, setFilterLevel] = useState('all');
@@ -213,6 +217,17 @@ export default function KhoCauHoi({
   const [parsingErrors, setParsingErrors] = useState<string[]>([]);
   const [importTab, setImportTab] = useState<'upload' | 'paste'>('upload');
   const [fileName, setFileName] = useState('');
+
+  // Chapter & Lesson classification overrides
+  const [overrideCategory, setOverrideCategory] = useState(true);
+  const [overrideSyllabus, setOverrideSyllabus] = useState('chuong-1');
+  const [overrideTopic, setOverrideTopic] = useState(syllabusData['chuong-1']?.lessons[0] || '');
+
+  const handleSyllabusChange = (key: string) => {
+    setOverrideSyllabus(key);
+    const lessons = syllabusData[key]?.lessons || [];
+    setOverrideTopic(lessons[0] || '');
+  };
 
   // Active similar AI generate category selection
   const [aiGenerateSyllabus, setAiGenerateSyllabus] = useState('chuong-2');
@@ -400,12 +415,26 @@ Lời giải: Áp dụng đặc điểm nhận biết phân biệt hình vuông 
     document.body.removeChild(link);
   };
 
-  const handleConfirmImport = () => {
+  const handleConfirmImport = (shouldPackage: boolean = false) => {
     playClickSound();
     if (parsedList.length === 0) return;
+
+    // Apply general classification overrides
+    const finalQuestions = parsedList.map(item => ({
+      ...item,
+      syllabus: overrideCategory ? overrideSyllabus : item.syllabus,
+      topic: overrideCategory ? overrideTopic : item.topic,
+    }));
+
     if (onImportQuestions) {
-      onImportQuestions(parsedList);
+      onImportQuestions(finalQuestions);
     }
+
+    if (shouldPackage && onSaveQuizPreset) {
+      // Direct Packaging / Đóng gói
+      onSaveQuizPreset(finalQuestions);
+    }
+
     // Success State cleanups
     setImportModalOpen(false);
     setPasteText('');
@@ -656,6 +685,47 @@ Lời giải: Áp dụng đặc điểm nhận biết phân biệt hình vuông 
             onChange={(e) => setKeyword(e.target.value)}
             className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 font-medium focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none"
           />
+        </div>
+      </div>
+
+      {/* Cleanup Manager Bar */}
+      <div className="bg-rose-50/50 p-4 rounded-2xl border border-rose-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="p-2 bg-rose-100/70 text-rose-700 rounded-xl text-base">🗑️</span>
+          <div>
+            <h4 className="font-extrabold text-rose-900">Quản lý dọn dẹp & Xóa nhanh kho câu hỏi</h4>
+            <p className="text-slate-500 font-medium text-[11px]">Xóa nhanh các câu hỏi rác hoặc reset kho đề theo từng chương học riêng biệt.</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 items-center lg:justify-end">
+          {Object.entries(syllabusData).map(([key, item]) => {
+            const count = questions.filter(q => q.syllabus === key).length;
+            if (count === 0) return null;
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  playClickSound();
+                  if (onClearChapterQuestions) onClearChapterQuestions(key);
+                }}
+                className="bg-white hover:bg-rose-50 text-rose-700 hover:text-rose-900 font-bold border border-rose-200 px-3 py-2 rounded-xl transition text-[11px] cursor-pointer flex items-center gap-1 shadow-2xs"
+                title={`Xóa tất cả ${count} câu thuộc chương này`}
+              >
+                Xóa {item.title.split(':')[0]} ({count} câu)
+              </button>
+            );
+          })}
+          {questions.length > 0 && (
+            <button
+              onClick={() => {
+                playClickSound();
+                if (onClearAllQuestions) onClearAllQuestions();
+              }}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-extrabold px-3.5 py-2 rounded-xl shadow-xs transition text-[11px] cursor-pointer flex items-center gap-1 border border-rose-750"
+            >
+              🔥 Xoá toàn bộ ({questions.length} câu)
+            </button>
+          )}
         </div>
       </div>
 
@@ -936,6 +1006,65 @@ Lời giải: Thay $x = 13$: $13^2 - 9 = 169 - 9 = 160$.`);
                     </div>
                   </div>
                 )}
+
+                {/* PHÂN LOẠI ĐỒNG LOẠT THEO CHƯƠNG / BÀI HỌC */}
+                <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/85 space-y-3 mt-auto">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={overrideCategory}
+                        onChange={(e) => {
+                          playClickSound();
+                          setOverrideCategory(e.target.checked);
+                        }}
+                        className="w-4 h-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500 accent-emerald-500"
+                      />
+                      🎯 Phân loại đồng loạt SGK
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-semibold">Tự động gắn đúng Chương & Bài</span>
+                  </div>
+
+                  {overrideCategory && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 transition duration-150 animate-in fade-in-50">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Chương học</label>
+                        <select
+                          value={overrideSyllabus}
+                          onChange={(e) => {
+                            playClickSound();
+                            handleSyllabusChange(e.target.value);
+                          }}
+                          className="w-full text-xs p-2 border border-slate-200 bg-white rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                        >
+                          {Object.entries(syllabusData).map(([key, value]) => (
+                            <option key={key} value={key}>
+                              {value.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Bài học / Chủ đề</label>
+                        <select
+                          value={overrideTopic}
+                          onChange={(e) => {
+                            playClickSound();
+                            setOverrideTopic(e.target.value);
+                          }}
+                          className="w-full text-xs p-2 border border-slate-200 bg-white rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none truncate"
+                        >
+                          {(syllabusData[overrideSyllabus]?.lessons || []).map((lesson) => (
+                            <option key={lesson} value={lesson}>
+                              {lesson}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Right Column: Parsed Results & Live Preview */}
@@ -1007,12 +1136,17 @@ Lời giải: Thay $x = 13$: $13^2 - 9 = 169 - 9 = 160$.`);
                           </div>
                         )}
 
-                        <div className="pt-2 border-t border-dashed border-slate-100 flex flex-wrap items-center justify-between gap-1 text-[10px] text-slate-400">
+                        <div className="pt-2 border-t border-dashed border-slate-100 space-y-1 text-[10px] text-slate-400">
                           <div>
-                            Chương: <strong className="text-slate-600 font-bold font-mono">{item.syllabus}</strong>
+                            Sách giáo khoa: <strong className="text-emerald-700 font-bold">{syllabusData[overrideCategory ? overrideSyllabus : item.syllabus]?.title || (overrideCategory ? overrideSyllabus : item.syllabus)}</strong>
                           </div>
-                          <div>
-                            Độ khó: <span className="text-slate-600 font-bold">{item.level}</span>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              Chủ đề: <strong className="text-slate-600 font-bold">{overrideCategory ? overrideTopic : item.topic}</strong>
+                            </div>
+                            <div>
+                              Độ khó: <span className="text-slate-600 font-bold">{item.level}</span>
+                            </div>
                           </div>
                         </div>
 
@@ -1034,9 +1168,9 @@ Lời giải: Thay $x = 13$: $13^2 - 9 = 169 - 9 = 160$.`);
             {/* Footer */}
             <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
               <span className="text-[11px] text-slate-400 font-medium font-sans">
-                {parsedList.length > 0 ? `🎉 Trích xuất thành công ${parsedList.length} câu hỏi đạt chuẩn.` : 'Hệ thống hỗ trợ nạp đề động bám sát tiến độ.'}
+                {parsedList.length > 0 ? `🎉 Sẵn sàng nạp ${parsedList.length} câu hỏi đạt chuẩn.` : 'Hệ thống hỗ trợ nạp đề động bám sát tiến độ.'}
               </span>
-              <div className="flex gap-2">
+              <div className="flex gap-2.5">
                 <button
                   onClick={() => {
                     playClickSound();
@@ -1047,11 +1181,18 @@ Lời giải: Thay $x = 13$: $13^2 - 9 = 169 - 9 = 160$.`);
                   Đóng lại
                 </button>
                 <button
-                  onClick={handleConfirmImport}
+                  onClick={() => handleConfirmImport(false)}
                   disabled={parsedList.length === 0}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1"
+                  className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl border border-indigo-200 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1"
                 >
-                  <Check className="w-4 h-4" /> Xác nhận & Import vào Ngân hàng ({parsedList.length} câu)
+                  <Check className="w-4 h-4" /> Nạp vào Ngân hàng ({parsedList.length} câu)
+                </button>
+                <button
+                  onClick={() => handleConfirmImport(true)}
+                  disabled={parsedList.length === 0}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5 animate-pulse" /> 📦 Đóng gói thành Đề thi ({parsedList.length} câu)
                 </button>
               </div>
             </div>
