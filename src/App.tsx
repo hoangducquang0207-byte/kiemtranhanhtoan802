@@ -43,6 +43,11 @@ import ChamDiem from './components/ChamDiem';
 import MathText from './components/MathText';
 import { playClickSound, playCorrectChime, playIncorrectChime, playCelebrationFanfare, playModalPopSound } from './utils/audio';
 
+// Firebase Firestore Cloud Sync imports
+import { db, handleFirestoreError, OperationType } from './firebase';
+import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+
+
 export default function App() {
   // Global States
   const [currentTab, setCurrentTab] = useState('trang-chu');
@@ -105,6 +110,58 @@ export default function App() {
       if (timerId) clearInterval(timerId);
     };
   }, [activeQuiz]);
+
+  // Synchronize Cloud Database & Real-time Cross-device sharing
+  useEffect(() => {
+    // 1. Real-time synchronizer for full Question Bank
+    const unsubscribeQuestions = onSnapshot(collection(db, 'questions'), (snapshot) => {
+      if (snapshot.empty) {
+        console.log('Database empty: Seeding default question bank...');
+        defaultQuestionBank.forEach((q) => {
+          setDoc(doc(db, 'questions', q.id), q).catch((err) => {
+            console.error('Error seeding question:', err);
+          });
+        });
+      } else {
+        const list: Question[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as Question);
+        });
+        // Numerical-aware sort to keep ID ordering pristine: "CH001", "CH002", etc.
+        list.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: 'base' }));
+        setQuestions(list);
+      }
+    }, (error) => {
+      console.error('Firestore questions sync error:', error);
+    });
+
+    // 2. Real-time synchronizer for Preset & Custom Quizzes (Kho đề kiểm tra)
+    const unsubscribeQuizzes = onSnapshot(collection(db, 'quizzes'), (snapshot) => {
+      if (snapshot.empty) {
+        console.log('Database empty: Seeding default preset quizzes...');
+        defaultPresetQuizzes.forEach((qz) => {
+          setDoc(doc(db, 'quizzes', qz.id), qz).catch((err) => {
+            console.error('Error seeding quiz:', err);
+          });
+        });
+      } else {
+        const list: PresetQuiz[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as PresetQuiz);
+        });
+        // Sort newest quizzes first
+        list.sort((a, b) => b.id.localeCompare(a.id, undefined, { numeric: true, sensitivity: 'base' }));
+        setQuizzes(list);
+      }
+    }, (error) => {
+      console.error('Firestore quizzes sync error:', error);
+    });
+
+    return () => {
+      unsubscribeQuestions();
+      unsubscribeQuizzes();
+    };
+  }, []);
 
   // Dialog & Modal Control states
   const [progressModalOpen, setProgressModalOpen] = useState(false);
@@ -334,7 +391,7 @@ export default function App() {
   };
 
   // Confirm and actually perform the packaging list of chosen questions
-  const handleConfirmPackQuiz = (titleValue: string) => {
+  const handleConfirmPackQuiz = async (titleValue: string) => {
     const customQuestions = packModal.questionsToPack;
     const finalTitle = titleValue.trim() || packModal.defaultTitle;
 
@@ -354,10 +411,14 @@ export default function App() {
       status: 'Đã lưu',
     };
 
-    setQuizzes((prev) => [newQuiz, ...prev]);
-    showToast(`Đóng gói & Tạo đề thành công: "${finalTitle}" đã sẵn sàng ở Kho đề!`);
-    setCurrentTab('kho-de'); // Navigate to Kho de
-    setPackModal({ open: false, questionsToPack: [], defaultTitle: '', titleInput: '' });
+    try {
+      await setDoc(doc(db, 'quizzes', newQuiz.id), newQuiz);
+      showToast(`Đóng gói & Tạo đề thành công: "${finalTitle}" đã sẵn sàng ở Kho đề!`);
+      setCurrentTab('kho-de'); // Navigate to Kho de
+      setPackModal({ open: false, questionsToPack: [], defaultTitle: '', titleInput: '' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `quizzes/${newQuiz.id}`);
+    }
   };
 
   // RENDER DYNAMIC QUIZZES ON THE FLY
@@ -442,8 +503,10 @@ export default function App() {
             const nextIdCounter = questions.length + i + 1;
             const newQ = generateRandomMathQuestion(config.syllabusKey, nextIdCounter, topicToGen);
             newGeneratedQuestions.push(newQ);
+            setDoc(doc(db, 'questions', newQ.id), newQ).catch((err) => {
+              console.error('Error saving dynamic generated question:', err);
+            });
           }
-          setQuestions((prev) => [...newGeneratedQuestions, ...prev]);
           finalQuestions = finalQuestions.concat(newGeneratedQuestions);
           showToast(`🤖 Lấy từ Kho Đề và sinh bổ sung ${neededCount} câu học tập khớp hoàn toàn tiến độ!`);
         }
@@ -469,8 +532,10 @@ export default function App() {
           const nextIdCounter = questions.length + i + 1;
           const newQ = generateRandomMathQuestion(config.syllabusKey, nextIdCounter, topicToGen);
           newGeneratedQuestions.push(newQ);
+          setDoc(doc(db, 'questions', newQ.id), newQ).catch((err) => {
+            console.error('Error saving dynamic generated fallback question:', err);
+          });
         }
-        setQuestions((prev) => [...newGeneratedQuestions, ...prev]);
         eligibleQuestions = eligibleQuestions.concat(newGeneratedQuestions);
         showToast(`🤖 Trợ lý AI đã thiết kế riêng ${neededCount} câu hỏi chất lượng cao hợp tiến độ học!`);
       }
@@ -731,7 +796,7 @@ export default function App() {
     });
   };
 
-  const handleSaveQuestionForm = () => {
+  const handleSaveQuestionForm = async () => {
     if (!qFormContent.trim()) {
       alert('Vui lòng bổ sung nội dung câu hỏi khảo sát.');
       return;
@@ -751,49 +816,50 @@ export default function App() {
       correctVal = qFormShortCorrect.trim() || '0';
     }
 
-    if (questionModal.mode === 'add') {
-      const code = 'CH' + (questions.length + 1).toString().padStart(3, '0');
-      const item: Question = {
-        id: code,
-        syllabus: qFormSyllabus,
-        topic: qFormTopic.trim() || 'Tổng hợp',
-        level: qFormLevel,
-        type: qFormType,
-        content: qFormContent,
-        options: optionsVal,
-        subQuestions: subQuestionsVal,
-        correct: correctVal,
-        solution: qFormSolution.trim() || 'Chưa cung cấp lời giải chi tiết.',
-        source: 'Giáo viên',
-        status: 'Đã duyệt',
-        uses: 0,
-        correctRate: 100,
-      };
+    try {
+      if (questionModal.mode === 'add') {
+        const code = 'CH' + (questions.length + 1).toString().padStart(3, '0');
+        const item: Question = {
+          id: code,
+          syllabus: qFormSyllabus,
+          topic: qFormTopic.trim() || 'Tổng hợp',
+          level: qFormLevel,
+          type: qFormType,
+          content: qFormContent,
+          options: optionsVal,
+          subQuestions: subQuestionsVal,
+          correct: correctVal,
+          solution: qFormSolution.trim() || 'Chưa cung cấp lời giải chi tiết.',
+          source: 'Giáo viên',
+          status: 'Đã duyệt',
+          uses: 0,
+          correctRate: 100,
+        };
 
-      setQuestions((prev) => [...prev, item]);
-      showToast(`Đã bổ sung câu hỏi mới thành công: ${code}`);
-    } else {
-      const activeId = questionModal.activeQuestion?.id;
-      setQuestions((prev) =>
-        prev.map((q) => {
-          if (q.id === activeId) {
-            return {
-              ...q,
-              syllabus: qFormSyllabus,
-              topic: qFormTopic.trim() || q.topic,
-              level: qFormLevel,
-              type: qFormType,
-              content: qFormContent,
-              options: optionsVal,
-              subQuestions: subQuestionsVal,
-              correct: correctVal,
-              solution: qFormSolution,
-            };
-          }
-          return q;
-        })
-      );
-      showToast(`Đã cập nhật câu hỏi thành công: ${activeId}`);
+        await setDoc(doc(db, 'questions', code), item);
+        showToast(`Đã bổ sung câu hỏi mới thành công: ${code}`);
+      } else {
+        const activeId = questionModal.activeQuestion?.id || '';
+        const existingQ = questions.find((q) => q.id === activeId);
+        if (existingQ) {
+          const item: Question = {
+            ...existingQ,
+            syllabus: qFormSyllabus,
+            topic: qFormTopic.trim() || existingQ.topic,
+            level: qFormLevel,
+            type: qFormType,
+            content: qFormContent,
+            options: optionsVal,
+            subQuestions: subQuestionsVal,
+            correct: correctVal,
+            solution: qFormSolution,
+          };
+          await setDoc(doc(db, 'questions', activeId), item);
+          showToast(`Đã cập nhật câu hỏi thành công: ${activeId}`);
+        }
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'questions');
     }
 
     setQuestionModal({ open: false, mode: 'add' });
@@ -804,9 +870,13 @@ export default function App() {
       open: true,
       title: 'Xóa câu hỏi',
       message: `Bạn có chắc chắn muốn bỏ vĩnh viễn câu hỏi có mã: <strong>${id}</strong>? Thao tác này không thể hoàn tác.`,
-      onConfirm: () => {
-        setQuestions((prev) => prev.filter((q) => q.id !== id));
-        showToast(`Đã loại bỏ câu hỏi: ${id}`);
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'questions', id));
+          showToast(`Đã loại bỏ câu hỏi: ${id}`);
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, `questions/${id}`);
+        }
       }
     });
   };
@@ -816,9 +886,14 @@ export default function App() {
       open: true,
       title: '🗑️ Xóa toàn bộ câu hỏi',
       message: 'Bạn có cực kỳ chắc chắn muốn xóa <strong>toàn bộ câu hỏi</strong> trong Ngân hàng? Tất cả câu hỏi thủ công và AI tự động sinh sẽ bị dọn sạch vĩnh viễn. Thao tác này không thể khôi phục.',
-      onConfirm: () => {
-        setQuestions([]);
-        showToast('🧹 Đã dọn sạch toàn bộ kho câu hỏi của Ngân hàng!');
+      onConfirm: async () => {
+        try {
+          const promises = questions.map((q) => deleteDoc(doc(db, 'questions', q.id)));
+          await Promise.all(promises);
+          showToast('🧹 Đã dọn sạch toàn bộ kho câu hỏi của Ngân hàng!');
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, 'questions');
+        }
       }
     });
   };
@@ -829,9 +904,15 @@ export default function App() {
       open: true,
       title: '🗑️ Xóa câu hỏi của chương',
       message: `Bạn có chắc chắn muốn xóa TOÀN BỘ câu hỏi thuộc <strong>${chapterName}</strong>? Thao tác này không thể hoàn tác.`,
-      onConfirm: () => {
-        setQuestions((prev) => prev.filter((q) => q.syllabus !== chapterKey));
-        showToast(`🧹 Đã dọn sạch câu hỏi thuộc ${chapterName}!`);
+      onConfirm: async () => {
+        try {
+          const targets = questions.filter((q) => q.syllabus === chapterKey);
+          const promises = targets.map((q) => deleteDoc(doc(db, 'questions', q.id)));
+          await Promise.all(promises);
+          showToast(`🧹 Đã dọn sạch câu hỏi thuộc ${chapterName}!`);
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, 'questions');
+        }
       }
     });
   };
@@ -840,13 +921,17 @@ export default function App() {
   const handleSimulateAIGenerate = async (chapterCode: string) => {
     return new Promise<void>((resolve) => {
       // Simulate real calculation latency
-      setTimeout(() => {
-        const newItem = generateRandomMathQuestion(chapterCode, questions.length + 1);
-        setQuestions((prev) => [newItem, ...prev]);
-        throwAlert(
-          '🤖 Trợ Lý AI Sinh Đề',
-          `AI đã thu thập dữ liệu chương học và tự động sinh thành công câu hỏi Equation: <b>${newItem.id}</b> thuộc chủ đề <i>"${newItem.topic}"</i> hiển thị sắc nét với KaTeX!`
-        );
+      setTimeout(async () => {
+        try {
+          const newItem = generateRandomMathQuestion(chapterCode, questions.length + 1);
+          await setDoc(doc(db, 'questions', newItem.id), newItem);
+          throwAlert(
+            '🤖 Trợ Lý AI Sinh Đề',
+            `AI đã thu thập dữ liệu chương học và tự động sinh thành công câu hỏi Equation: <b>${newItem.id}</b> thuộc chủ đề <i>"${newItem.topic}"</i> hiển thị sắc nét với KaTeX!`
+          );
+        } catch (error) {
+          console.error(error);
+        }
         resolve();
       }, 1000);
     });
@@ -1168,9 +1253,15 @@ export default function App() {
               onSimulateAIGenerate={handleSimulateAIGenerate}
               onStartCustomQuiz={handleStartCustomQuiz}
               onSaveQuizPreset={handleSaveQuizPreset}
-              onImportQuestions={(newQs) => {
-                setQuestions((prev) => [...newQs, ...prev]);
-                showToast(`🎉 Đã nạp thành công ${newQs.length} câu hỏi mới vào Ngân hàng!`);
+              onImportQuestions={async (newQs) => {
+                try {
+                  const promises = newQs.map((q) => setDoc(doc(db, 'questions', q.id), q));
+                  await Promise.all(promises);
+                  showToast(`🎉 Đã nạp thành công ${newQs.length} câu hỏi mới vào Ngân hàng!`);
+                } catch (error) {
+                  console.error('Error importing questions: ', error);
+                  showToast(`❌ Có lỗi xảy ra khi nạp câu hỏi vào Cơ sở dữ liệu.`);
+                }
               }}
               onClearAllQuestions={handleClearAllQuestions}
               onClearChapterQuestions={handleClearChapterQuestions}

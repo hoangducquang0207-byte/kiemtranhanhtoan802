@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny catch-all rule as a mandatory safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper: Validate IDs against malicious injections or path exploits
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // Validation blueprint helper for the Question entity
+    function isValidQuestion(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.syllabus is string && data.syllabus.size() <= 128
+        && data.topic is string && data.topic.size() <= 200
+        && data.level is string && data.level.size() <= 128
+        && data.type is string && data.type.size() <= 64
+        && data.content is string && data.content.size() <= 5000
+        && (data.correct is string || data.correct is list)
+        && (!('options' in data) || data.options is list)
+        && (!('subQuestions' in data) || data.subQuestions is list)
+        && (!('solution' in data) || data.solution is string && data.solution.size() <= 5000)
+        && (!('source' in data) || data.source is string && data.source.size() <= 128)
+        && (!('status' in data) || data.status is string && data.status.size() <= 128)
+        && (!('uses' in data) || data.uses is number)
+        && (!('correctRate' in data) || data.correctRate is number);
+    }
+
+    // Validation blueprint helper for the PresetQuiz entity
+    function isValidQuiz(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() <= 500
+        && data.class is string && data.class.size() <= 128
+        && data.syllabus is string && data.syllabus.size() <= 128
+        && data.topic is string && data.topic.size() <= 200
+        && data.questionCount is number
+        && data.timer is number
+        && data.questions is list
+        && data.date is string && data.date.size() <= 128;
+    }
+
+    // Question collection rules
+    match /questions/{questionId} {
+      allow read: if true;
+      allow create, update: if isValidId(questionId) && isValidQuestion(incoming());
+      allow delete: if isValidId(questionId);
+    }
+
+    // Quiz collection rules
+    match /quizzes/{quizId} {
+      allow read: if true;
+      allow create, update: if isValidId(quizId) && isValidQuiz(incoming());
+      allow delete: if isValidId(quizId);
+    }
+  }
+}

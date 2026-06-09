@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "question": {
+      "title": "Question",
+      "description": "A single question in the question bank, sync-ready",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "syllabus": { "type": "string" },
+        "topic": { "type": "string" },
+        "level": { "type": "string" },
+        "type": { "type": "string" },
+        "content": { "type": "string" },
+        "options": { "type": "array" },
+        "subQuestions": { "type": "array" },
+        "correct": { "type": "string" },
+        "solution": { "type": "string" },
+        "source": { "type": "string" },
+        "status": { "type": "string" },
+        "uses": { "type": "number" },
+        "correctRate": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "syllabus", "topic", "level", "type", "content", "correct"]
+    },
+    "quiz": {
+      "title": "PresetQuiz",
+      "description": "A preset quiz or test structured package",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "class": { "type": "string" },
+        "syllabus": { "type": "string" },
+        "topic": { "type": "string" },
+        "mode": { "type": "string" },
+        "questionCount": { "type": "number" },
+        "timer": { "type": "number" },
+        "type": { "type": "string" },
+        "level": { "type": "string" },
+        "questions": { "type": "array" },
+        "date": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "class", "syllabus", "topic", "questionCount", "timer", "questions", "date"]
+    }
+  },
+  "firestore": {
+    "/questions/{questionId}": {
+      "schema": "question",
+      "description": "Bank of all synchronized questions"
+    },
+    "/quizzes/{quizId}": {
+      "schema": "quiz",
+      "description": "List of preset or shared packaged quizzes"
+    }
+  }
+}
