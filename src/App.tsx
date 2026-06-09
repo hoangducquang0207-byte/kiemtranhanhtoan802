@@ -44,7 +44,7 @@ import MathText from './components/MathText';
 import { playClickSound, playCorrectChime, playIncorrectChime, playCelebrationFanfare, playModalPopSound } from './utils/audio';
 
 // Firebase Firestore Cloud Sync imports
-import { db, handleFirestoreError, OperationType } from './firebase';
+import { db, handleFirestoreError, OperationType, sanitizeFirestoreData } from './firebase';
 import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 
 
@@ -118,7 +118,7 @@ export default function App() {
       if (snapshot.empty) {
         console.log('Database empty: Seeding default question bank...');
         defaultQuestionBank.forEach((q) => {
-          setDoc(doc(db, 'questions', q.id), q).catch((err) => {
+          setDoc(doc(db, 'questions', q.id), sanitizeFirestoreData(q)).catch((err) => {
             console.error('Error seeding question:', err);
           });
         });
@@ -140,7 +140,7 @@ export default function App() {
       if (snapshot.empty) {
         console.log('Database empty: Seeding default preset quizzes...');
         defaultPresetQuizzes.forEach((qz) => {
-          setDoc(doc(db, 'quizzes', qz.id), qz).catch((err) => {
+          setDoc(doc(db, 'quizzes', qz.id), sanitizeFirestoreData(qz)).catch((err) => {
             console.error('Error seeding quiz:', err);
           });
         });
@@ -412,7 +412,7 @@ export default function App() {
     };
 
     try {
-      await setDoc(doc(db, 'quizzes', newQuiz.id), newQuiz);
+      await setDoc(doc(db, 'quizzes', newQuiz.id), sanitizeFirestoreData(newQuiz));
       showToast(`Đóng gói & Tạo đề thành công: "${finalTitle}" đã sẵn sàng ở Kho đề!`);
       setCurrentTab('kho-de'); // Navigate to Kho de
       setPackModal({ open: false, questionsToPack: [], defaultTitle: '', titleInput: '' });
@@ -503,7 +503,7 @@ export default function App() {
             const nextIdCounter = questions.length + i + 1;
             const newQ = generateRandomMathQuestion(config.syllabusKey, nextIdCounter, topicToGen);
             newGeneratedQuestions.push(newQ);
-            setDoc(doc(db, 'questions', newQ.id), newQ).catch((err) => {
+            setDoc(doc(db, 'questions', newQ.id), sanitizeFirestoreData(newQ)).catch((err) => {
               console.error('Error saving dynamic generated question:', err);
             });
           }
@@ -532,7 +532,7 @@ export default function App() {
           const nextIdCounter = questions.length + i + 1;
           const newQ = generateRandomMathQuestion(config.syllabusKey, nextIdCounter, topicToGen);
           newGeneratedQuestions.push(newQ);
-          setDoc(doc(db, 'questions', newQ.id), newQ).catch((err) => {
+          setDoc(doc(db, 'questions', newQ.id), sanitizeFirestoreData(newQ)).catch((err) => {
             console.error('Error saving dynamic generated fallback question:', err);
           });
         }
@@ -836,7 +836,7 @@ export default function App() {
           correctRate: 100,
         };
 
-        await setDoc(doc(db, 'questions', code), item);
+        await setDoc(doc(db, 'questions', code), sanitizeFirestoreData(item));
         showToast(`Đã bổ sung câu hỏi mới thành công: ${code}`);
       } else {
         const activeId = questionModal.activeQuestion?.id || '';
@@ -854,7 +854,7 @@ export default function App() {
             correct: correctVal,
             solution: qFormSolution,
           };
-          await setDoc(doc(db, 'questions', activeId), item);
+          await setDoc(doc(db, 'questions', activeId), sanitizeFirestoreData(item));
           showToast(`Đã cập nhật câu hỏi thành công: ${activeId}`);
         }
       }
@@ -924,7 +924,7 @@ export default function App() {
       setTimeout(async () => {
         try {
           const newItem = generateRandomMathQuestion(chapterCode, questions.length + 1);
-          await setDoc(doc(db, 'questions', newItem.id), newItem);
+          await setDoc(doc(db, 'questions', newItem.id), sanitizeFirestoreData(newItem));
           throwAlert(
             '🤖 Trợ Lý AI Sinh Đề',
             `AI đã thu thập dữ liệu chương học và tự động sinh thành công câu hỏi Equation: <b>${newItem.id}</b> thuộc chủ đề <i>"${newItem.topic}"</i> hiển thị sắc nét với KaTeX!`
@@ -1255,12 +1255,13 @@ export default function App() {
               onSaveQuizPreset={handleSaveQuizPreset}
               onImportQuestions={async (newQs) => {
                 try {
-                  const promises = newQs.map((q) => setDoc(doc(db, 'questions', q.id), q));
+                  const promises = newQs.map((q) => setDoc(doc(db, 'questions', q.id), sanitizeFirestoreData(q)));
                   await Promise.all(promises);
                   showToast(`🎉 Đã nạp thành công ${newQs.length} câu hỏi mới vào Ngân hàng!`);
                 } catch (error) {
                   console.error('Error importing questions: ', error);
-                  showToast(`❌ Có lỗi xảy ra khi nạp câu hỏi vào Cơ sở dữ liệu.`);
+                  const errorMsg = error instanceof Error ? error.message : String(error);
+                  showToast(`❌ Có lỗi xảy ra khi nạp câu hỏi: ${errorMsg}`);
                 }
               }}
               onClearAllQuestions={handleClearAllQuestions}

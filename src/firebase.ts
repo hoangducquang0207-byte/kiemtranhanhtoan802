@@ -46,6 +46,11 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
+export function sanitizeFirestoreData<T>(obj: T): T {
+  if (obj === undefined || obj === null) return obj;
+  return JSON.parse(JSON.stringify(obj)) as T;
+}
+
 async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test-connection-doc', 'ping'));
